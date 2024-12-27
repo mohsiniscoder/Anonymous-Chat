@@ -14,16 +14,17 @@ const io = new Server(server, { cors: { origin: '*' } });
 app.use(cors());
 app.use(bodyParser.json());
 
-// MongoDB Connection
-mongoose.connect('mongodb://localhost:27017/chatApp', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-});
-const db = mongoose.connection;
-db.on('error', console.error.bind(console, 'connection error:'));
-db.once('open', () => {
-    console.log('Connected to MongoDB');
-});
+// MongoDB Atlas Connection
+const mongoURI = 'mongodb+srv://mohsinbhai894:mohsinisgood666@cluster0.fdiqf.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
+
+// Connect to MongoDB Atlas
+mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => {
+    console.log('Successfully connected to MongoDB Atlas!');
+  })
+  .catch(err => {
+    console.error('Error connecting to MongoDB Atlas:', err);
+  });
 
 // Schemas and Models
 const messageSchema = new mongoose.Schema({
@@ -54,7 +55,6 @@ app.post('/messages', async (req, res) => {
     }
 });
 
-
 // API Endpoint to Get All Rooms (Filtered by Key)
 app.post('/rooms', async (req, res) => {
     const { key } = req.body;
@@ -67,7 +67,6 @@ app.post('/rooms', async (req, res) => {
         res.status(500).send('Error retrieving room');
     }
 });
-
 
 // API Endpoint to Create a New Room
 app.post('/createRoom', async (req, res) => {

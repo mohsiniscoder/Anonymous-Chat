@@ -4,7 +4,7 @@ from collections import defaultdict
 import json
 
 # Ports for frontend (3000) and backend (3001) where Socket.IO is used
-valid_ports = [3000, 3001]
+valid_ports = [3001]
 
 # Store packet data for visualization or further processing
 packet_data = defaultdict(int)
@@ -12,10 +12,9 @@ packet_data = defaultdict(int)
 # Function to check if the packet contains meaningful data (non keep-alive)
 def is_meaningful_packet(packet_raw):
     # Here you can check for specific patterns or payload content
-    # For simplicity, let's assume that real messages have a JSON structure
     try:
-        # Try to decode the packet as JSON (Socket.IO typically uses JSON for messages)
-        payload = packet_raw.decode('utf-8', errors='ignore')  # Decode raw packet data to string
+        # Convert memoryview to bytes before decoding
+        payload = bytes(packet_raw).decode('utf-8', errors='ignore')  # Decode raw packet data to string
         if payload.startswith('42'):  # Socket.IO message prefix
             # Look for specific fields in the message payload to differentiate real messages
             try:
@@ -29,6 +28,7 @@ def is_meaningful_packet(packet_raw):
         pass  # Ignore packets that cannot be decoded as UTF-8 strings
     
     return False  # Return False for non-meaningful packets
+
 
 def capture_packets():
     try:
