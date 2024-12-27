@@ -1,78 +1,105 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const mongoose = require('mongoose');
+const bodyParser = require('body-parser');
 const cors = require('cors');
-const { spawn } = require('child_process');
 
+// Initialize Express and Socket.IO
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
+// Middleware
 app.use(cors());
-app.get('/', (req, res) => {
-    res.send('Server is running...');
+app.use(bodyParser.json());
+
+// MongoDB Connection
+mongoose.connect('mongodb://localhost:27017/chatApp', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+});
+const db = mongoose.connection;
+db.on('error', console.error.bind(console, 'connection error:'));
+db.once('open', () => {
+    console.log('Connected to MongoDB');
 });
 
-// Function to validate JSON
-// const isValidJson = (str) => {
-//     try {
-//         JSON.parse(str);
-//         return true;
-//     } catch (e) {
-//         return false;
-//     }
-// };
+// Schemas and Models
+const messageSchema = new mongoose.Schema({
+    username: String,
+    message: String,
+    room: String,
+    timestamp: { type: Date, default: Date.now },
+});
+const Message = mongoose.model('Message', messageSchema);
 
-// Start tshark process
-const startTshark = () => {
-    // Use the loopback interface ('lo') for capturing all traffic
-    const tshark = spawn('tshark', ['-i', 'lo', '-T', 'json']);
-    
-    let buffer = ''; // Accumulate data in a buffer
+const roomSchema = new mongoose.Schema({
+    name: String,
+    key: String,
+});
+const Room = mongoose.model('Room', roomSchema);
 
-    tshark.stdout.on('data', (data) => {
-        buffer += data.toString(); // Append new data to the buffer
+// API Endpoint to Retrieve Messages for a Room
+app.post('/messages', async (req, res) => {
+    const { room, key } = req.body;
+    try {
+        const validRoom = await Room.findOne({ name: room, key });
+        if (!validRoom) return res.status(403).send('Invalid room or key.');
 
-        let lines = buffer.split('\n'); // Split buffer into lines
-        buffer = lines.pop(); // Save incomplete line back to buffer
+        const messages = await Message.find({ room }).sort({ timestamp: 1 });
+        res.json(messages);
+    } catch (error) {
+        res.status(500).send('Error retrieving messages');
+    }
+});
 
-        lines.forEach((line) => {
-            if (line.trim()) {
-                // Try parsing the JSON
-                try {
-                    if (isValidJson(line)) {
-                        const packet = JSON.parse(line);
-                        io.emit('packetData', packet); // Broadcast to clients
-                    } else {
-                        // Handle invalid JSON (partial JSON object)
-                        console.warn('Partial or invalid JSON data:', line);
-                    }
-                } catch (err) {
-                    console.error('Error parsing JSON:', err);
-                }
-            }
-        });
-    });
 
-    tshark.stderr.on('data', (data) => {
-        console.log('tshark :', data.toString());
-    });
+// API Endpoint to Get All Rooms (Filtered by Key)
+app.post('/rooms', async (req, res) => {
+    const { key } = req.body;
+    try {
+        const room = await Room.findOne({ key });
+        if (!room) return res.status(403).send(null);
 
-    tshark.on('close', (code) => {
-        console.log(`tshark process exited with code ${code}`);
-    });
+        res.json(room);
+    } catch (error) {
+        res.status(500).send('Error retrieving room');
+    }
+});
 
-    return tshark;
-};
 
-let tsharkProcess = startTshark();
+// API Endpoint to Create a New Room
+app.post('/createRoom', async (req, res) => {
+    const { name, key } = req.body;
+    try {
+        const newRoom = new Room({ name, key });
+        await newRoom.save();
+        res.json(newRoom);
+    } catch (error) {
+        res.status(500).send('Error creating room');
+    }
+});
 
+// Socket.IO Event Handling
 io.on('connection', (socket) => {
     console.log('A user connected:', socket.id);
 
-    // Listen for chat messages and broadcast them to all connected clients
-    socket.on('chatMessage', (data) => {
-        io.emit('chatMessage', data); // Broadcast the message to all users
+    // Listen for joining a room
+    socket.on('joinRoom', (room) => {
+        socket.join(room);
+        console.log(`User joined room: ${room}`);
+    });
+
+    // Listen for chat messages and broadcast them to the specific room
+    socket.on('chatMessage', async (data) => {
+        try {
+            const newMessage = new Message(data);
+            await newMessage.save();
+            io.to(data.room).emit('chatMessage', data); // Broadcast to the specific room
+        } catch (error) {
+            console.error('Error saving message:', error);
+        }
     });
 
     socket.on('disconnect', () => {
@@ -80,12 +107,7 @@ io.on('connection', (socket) => {
     });
 });
 
+// Server Listen
 server.listen(3001, () => {
     console.log('Server running on http://localhost:3001');
-});
-
-// Stop tshark process on server exit
-process.on('SIGINT', () => {
-    tsharkProcess.kill();
-    process.exit();
 });
